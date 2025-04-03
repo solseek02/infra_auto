@@ -1,0 +1,32 @@
+---
+- name: Setup DNS Server
+  hosts: dns_servers
+  become: yes
+  vars_files:
+    - ../vars/common.yml
+  roles:
+    - dns_server
+
+- name: Setup Mail Server
+  hosts: mail_servers
+  become: yes
+  vars_files:
+    - ../vars/common.yml
+  roles:
+    - mail_server
+
+- name: Setup Kubernetes Nodes (Common)
+  hosts: k8s_cluster
+  become: yes
+  vars_files:
+    - ../vars/common.yml
+  roles:
+    - k8s_nodes
+
+- name: Setup Kubernetes Master
+  hosts: k8s_master
+  become: yes
+  vars_files:
+    - ../vars/common.yml
+  roles:
+    - k8s_master 

@@ -1,0 +1,60 @@
+---
+- name: Install mail server packages
+  yum:
+    name:
+      - postfix
+      - dovecot
+    state: present
+
+- name: Create mail user
+  user:
+    name: "{{ mail_user }}"
+    shell: /sbin/nologin
+    create_home: yes
+    state: present
+
+- name: Create Maildir structure
+  file:
+    path: "/home/{{ mail_user }}/{{ mail_dir }}/{new,cur,tmp}"
+    state: directory
+    owner: "{{ mail_user }}"
+    group: "{{ mail_user }}"
+    mode: '0700'
+
+- name: Configure Postfix
+  template:
+    src: main.cf.j2
+    dest: /etc/postfix/main.cf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart postfix
+
+- name: Configure Dovecot
+  template:
+    src: dovecot.conf.j2
+    dest: /etc/dovecot/dovecot.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart dovecot
+
+- name: Configure firewall for mail services
+  firewalld:
+    service: "{{ item }}"
+    permanent: yes
+    state: enabled
+  loop:
+    - smtp
+    - imap
+    - pop3
+  notify: restart firewalld
+
+- name: Start and enable mail services
+  systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: yes
+  loop:
+    - postfix
+    - dovecot 

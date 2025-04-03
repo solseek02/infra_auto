@@ -1,0 +1,84 @@
+---
+###############################
+# Log Transfer Configuration #
+###############################
+
+- name: Configure Log Transfer
+  hosts: log_transfer
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Print hostname
+      debug:
+        msg: "현재 호스트네임: {{ inventory_hostname }}"
+
+    - name: 설치 - Filebeat 및 Metricbeat
+      dnf:
+        name:
+          - filebeat
+          - metricbeat
+        state: present
+
+    - name: Filebeat 설정 복사
+      copy:
+        src: file/filebeat/filebeat.yml
+        dest: /etc/filebeat/filebeat.yml
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart Filebeat
+
+    - name: Metricbeat 설정 복사
+      copy:
+        src: file/metricbeat/metricbeat.yml
+        dest: /etc/metricbeat/metricbeat.yml
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart Metricbeat
+
+    - name: 커스텀 모듈 복사
+      copy:
+        src: file/modules/
+        dest: /etc/filebeat/modules.d/
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart Filebeat
+
+    - name: Filebeat 서비스 시작 및 부팅 시 활성화
+      systemd:
+        name: filebeat
+        state: started
+        enabled: yes
+
+    - name: Metricbeat 서비스 시작 및 부팅 시 활성화
+      systemd:
+        name: metricbeat
+        state: started
+        enabled: yes
+
+    - name: /etc/motd에 완료 메시지 등록
+      copy:
+        content: |
+          #####################################################
+          ✅ 이 호스트는 Ansible에 의해 성공적으로 설정되었습니다.
+          ✅ 호스트명: {{ inventory_hostname }}
+          ✅ 완료 시각: {{ ansible_date_time.date }} {{ ansible_date_time.time }}
+          #####################################################
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: '0644'
+
+  handlers:
+    - name: Restart Filebeat
+      systemd:
+        name: filebeat
+        state: restarted
+
+    - name: Restart Metricbeat
+      systemd:
+        name: metricbeat
+        state: restarted 

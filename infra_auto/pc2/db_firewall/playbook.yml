@@ -1,0 +1,82 @@
+#######################
+# DB_Firewall config  #
+#######################
+
+- name: Configure DB_firewall (port forwarding and NAT)
+  hosts: db_firewall
+  become: yes
+
+  tasks:
+    - name: Display hostname
+      command: hostname
+      register: hostname_output
+
+    - name: Print hostname
+      debug:
+        msg: "현재 호스트네임: {{ hostname_output.stdout }}"
+
+    - name: firewalld 설치
+      dnf:
+        name: firewalld
+        state: present
+
+    - name: firewalld 서비스 시작 및 부팅 시 활성화
+      systemd:
+        name: firewalld
+        state: started
+        enabled: yes
+
+    - name: Allow ICMP echo-request (ping 허용)
+      ansible.posix.firewalld:
+        icmp_block:
+          - echo-request
+        state: disabled
+        immediate: yes
+        permanent: yes  
+
+    - name: Enable IP forwarding
+      ansible.posix.firewalld:
+        forward: yes
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    - name: Enable masquerading (NAT 마스커레이딩)
+      ansible.posix.firewalld:
+        masquerade: yes
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    - name: 필수 TCP 포트 허용 (SSH, MySQL 등)
+      ansible.posix.firewalld:
+        port: "{{ item }}/tcp"
+        permanent: yes
+        state: enabled
+        immediate: yes
+      loop:
+        - 22      # SSH
+        - 3306    # MySQL
+
+    - name: 포트 포워딩 설정 추가
+      command: >
+        firewall-cmd --permanent
+        --add-forward-port=port={{ item.port }}:proto={{ item.proto }}:toport={{ item.toport }}:toaddr={{ item.toaddr }}
+      loop:
+        - { port: 3306, proto: tcp, toport: 3306, toaddr: 192.168.50.20 }
+
+    - name: Reload firewalld 적용
+      command: firewall-cmd --reload
+
+    - name: /etc/motd에 Ansible 완료 메시지 설정
+      copy:
+        content: |
+          #####################################################
+          ✅ 이 호스트는 Ansible에 의해 성공적으로 설정되었습니다.
+          ✅ 호스트명: {{ inventory_hostname }}
+          ✅ 완료 시각: {{ ansible_date_time.date }} {{ ansible_date_time.time }}
+          #####################################################
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: '0644' 

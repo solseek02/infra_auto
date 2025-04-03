@@ -1,0 +1,95 @@
+---
+###############################
+# SIEM Configuration #
+###############################
+
+- name: Configure SIEM
+  hosts: siem
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Print hostname
+      debug:
+        msg: "현재 호스트네임: {{ inventory_hostname }}"
+
+    - name: 설치 - Elasticsearch 및 Kibana
+      dnf:
+        name:
+          - elasticsearch
+          - kibana
+        state: present
+
+    - name: Elasticsearch 설정 복사
+      copy:
+        src: file/elasticsearch.yml
+        dest: /etc/elasticsearch/elasticsearch.yml
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart Elasticsearch
+
+    - name: Kibana 설정 복사
+      copy:
+        src: file/kibana.yml
+        dest: /etc/kibana/kibana.yml
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart Kibana
+
+    - name: Elasticsearch 서비스 시작 및 부팅 시 활성화
+      systemd:
+        name: elasticsearch
+        state: started
+        enabled: yes
+
+    - name: Kibana 서비스 시작 및 부팅 시 활성화
+      systemd:
+        name: kibana
+        state: started
+        enabled: yes
+
+    - name: Elasticsearch 상태 확인
+      uri:
+        url: "http://localhost:9200"
+        method: GET
+        status_code: 200
+      register: elasticsearch_status
+      until: elasticsearch_status.status == 200
+      retries: 10
+      delay: 10
+
+    - name: Kibana 상태 확인
+      uri:
+        url: "http://localhost:5601"
+        method: GET
+        status_code: 200
+      register: kibana_status
+      until: kibana_status.status == 200
+      retries: 10
+      delay: 10
+
+    - name: /etc/motd에 완료 메시지 등록
+      copy:
+        content: |
+          #####################################################
+          ✅ 이 호스트는 Ansible에 의해 성공적으로 설정되었습니다.
+          ✅ 호스트명: {{ inventory_hostname }}
+          ✅ 완료 시각: {{ ansible_date_time.date }} {{ ansible_date_time.time }}
+          #####################################################
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: '0644'
+
+  handlers:
+    - name: Restart Elasticsearch
+      systemd:
+        name: elasticsearch
+        state: restarted
+
+    - name: Restart Kibana
+      systemd:
+        name: kibana
+        state: restarted 

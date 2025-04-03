@@ -1,0 +1,51 @@
+$TTL 86400
+@   IN  SOA  {{ dns_server_hostname }}.{{ domain }}. root.{{ domain }}. (
+        2024032001  ; Serial
+        3600        ; Refresh
+        1800        ; Retry
+        604800      ; Expire
+        86400       ; Minimum TTL
+)
+
+; Name Server 정보
+@       IN  NS   {{ dns_server_hostname }}.{{ domain }}.
+{{ dns_server_hostname }}     IN  A    {{ dns_server_ip }}
+
+; project.com 자체 A 레코드
+@       IN  A    {{ dns_server_ip }}
+
+; A 레코드 (웹 서버 및 백엔드 서버)
+www         IN  A    192.168.20.20
+worker1     IN  A    192.168.20.30
+worker2     IN  A    192.168.20.40
+worker3     IN  A    192.168.20.50
+worker4     IN  A    192.168.20.60
+worker5     IN  A    192.168.20.70
+worker6     IN  A    192.168.20.80
+
+; 방화벽 및 보안 서버
+fw1         IN  A    172.16.6.80
+fw2         IN  A    172.16.6.82
+fw3         IN  A    192.168.40.20
+utm         IN  A    172.16.6.81
+
+; 데이터베이스 서버
+db          IN  A    192.168.50.20
+
+; 로그 및 보안 모니터링 서버
+log         IN  A    192.168.60.20
+siem        IN  A    192.168.60.30
+
+; 스토리지 서버
+storage     IN  A    192.168.70.20
+
+; DNS 서버
+dns         IN  A    {{ dns_server_ip }}
+
+; 메일 서버
+mail        IN  A    {{ mail_server_ip }}
+@           IN  MX   10 mail.{{ domain }}.
+
+; CNAME 레코드
+dev         IN  CNAME www.{{ domain }}.
+api         IN  CNAME www.{{ domain }}. 

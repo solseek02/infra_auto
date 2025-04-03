@@ -1,0 +1,90 @@
+---
+###############################
+# Firewall Configuration #
+###############################
+
+- name: Configure Firewall
+  hosts: firewall
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Print hostname
+      debug:
+        msg: "현재 호스트네임: {{ inventory_hostname }}"
+
+    - name: 설치 - firewalld 및 관련 패키지
+      dnf:
+        name:
+          - firewalld
+          - policycoreutils-python-utils
+        state: present
+
+    - name: firewalld 서비스 시작 및 부팅 시 활성화
+      systemd:
+        name: firewalld
+        state: started
+        enabled: yes
+
+    - name: 기본 영역 설정
+      firewalld:
+        zone: public
+        state: enabled
+        permanent: yes
+        immediate: yes
+
+    - name: ICMP 허용 (ping)
+      firewalld:
+        zone: public
+        service: icmp
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    - name: SSH 허용
+      firewalld:
+        zone: public
+        service: ssh
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    - name: IP 포워딩 활성화
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        state: present
+        reload: yes
+
+    - name: NAT 설정
+      firewalld:
+        zone: public
+        masquerade: yes
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    - name: 포트 포워딩 설정
+      firewalld:
+        zone: public
+        forward_port: "port=80:proto=tcp:toport=8080:toaddr=192.168.50.20"
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    - name: firewalld 설정 리로드
+      firewalld:
+        state: reloaded
+
+    - name: /etc/motd에 완료 메시지 등록
+      copy:
+        content: |
+          #####################################################
+          ✅ 이 호스트는 Ansible에 의해 성공적으로 설정되었습니다.
+          ✅ 호스트명: {{ inventory_hostname }}
+          ✅ 완료 시각: {{ ansible_date_time.date }} {{ ansible_date_time.time }}
+          #####################################################
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: '0644' 

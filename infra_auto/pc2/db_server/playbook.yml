@@ -1,0 +1,254 @@
+---
+###############################
+# MariaDB Master-Slave Setup #
+###############################
+
+- name: Configure MariaDB Master
+  hosts: db_master
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Print hostname
+      debug:
+        msg: "현재 호스트네임: {{ inventory_hostname }}"
+
+    - name: 설치 - MariaDB 및 관련 패키지
+      dnf:
+        name:
+          - mariadb-server
+          - mariadb
+          - python3-PyMySQL
+          - keepalived
+        state: present
+
+    - name: MariaDB 서비스 시작 및 부팅 시 활성화
+      systemd:
+        name: mariadb
+        state: started
+        enabled: yes
+
+    - name: MariaDB 루트 비밀번호 설정
+      command: mysqladmin -u root password "root"
+      ignore_errors: yes
+
+    - name: MariaDB 보안 설정
+      expect:
+        command: mysql_secure_installation
+        responses:
+          'Enter current password for root': 'root'
+          'Switch to unix_socket authentication': 'n'
+          'Change the root password': 'n'
+          'Remove anonymous users': 'y'
+          'Disallow root login remotely': 'n'
+          'Remove test database and access to it': 'y'
+          'Reload privilege tables now': 'y'
+      ignore_errors: yes
+
+    - name: MariaDB 마스터 설정 복사
+      copy:
+        src: file/master_mariadb-server.cnf
+        dest: /etc/my.cnf.d/mariadb-server.cnf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart MariaDB
+
+    - name: 복제 사용자 생성
+      community.mysql.mysql_user:
+        name: repl
+        host: '%'
+        password: repl
+        priv: '*.*:REPLICATION SLAVE'
+        state: present
+        login_user: root
+        login_password: root
+
+    - name: 마스터 상태 확인 (SHOW MASTER STATUS)
+      community.mysql.mysql_query:
+        login_user: root
+        login_password: root
+        query: "SHOW MASTER STATUS"
+      register: master_status
+
+    - name: 복제 정보 변수 등록
+      set_fact:
+        master_log_file: "{{ master_status.query_result[0][0].File }}"
+        master_log_pos: "{{ master_status.query_result[0][0].Position }}"
+
+    - name: Keepalived 설정 복사 (Master)
+      copy:
+        src: file/master_keepalived.conf
+        dest: /etc/keepalived/keepalived.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart keepalived
+
+    - name: MySQL 상태 체크 스크립트 복사
+      copy:
+        src: file/mysql_check.sh
+        dest: /usr/local/bin/mysql_check.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Keepalived 서비스 시작
+      systemd:
+        name: keepalived
+        enabled: yes
+        state: restarted
+
+    - name: /etc/motd에 완료 메시지 등록 (Master)
+      copy:
+        content: |
+          #####################################################
+          ✅ 이 호스트는 Ansible에 의해 성공적으로 설정되었습니다.
+          ✅ 호스트명: {{ inventory_hostname }}
+          ✅ 완료 시각: {{ ansible_date_time.date }} {{ ansible_date_time.time }}
+          #####################################################
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: '0644'
+
+  handlers:
+    - name: Restart MariaDB
+      systemd:
+        name: mariadb
+        state: restarted
+
+    - name: Restart keepalived
+      systemd:
+        name: keepalived
+        state: restarted
+
+- name: Configure MariaDB Slave
+  hosts: db_slave
+  become: yes
+  gather_facts: yes
+
+  vars:
+    master_host: "172.16.6.82"
+    master_user: "repl"
+    master_password: "repl"
+    master_log_file: "{{ hostvars['db_master'].master_log_file }}"
+    master_log_pos: "{{ hostvars['db_master'].master_log_pos }}"
+
+  tasks:
+    - name: Print hostname
+      debug:
+        msg: "현재 호스트네임: {{ inventory_hostname }}"
+
+    - name: 설치 - MariaDB 및 관련 패키지
+      dnf:
+        name:
+          - mariadb-server
+          - mariadb
+          - python3-PyMySQL
+          - keepalived
+        state: present
+
+    - name: MariaDB 서비스 시작 및 부팅 시 활성화
+      systemd:
+        name: mariadb
+        state: started
+        enabled: yes
+
+    - name: MariaDB 루트 비밀번호 설정
+      command: mysqladmin -u root password "root"
+      ignore_errors: yes
+
+    - name: MariaDB 보안 설정
+      expect:
+        command: mysql_secure_installation
+        responses:
+          'Enter current password for root': 'root'
+          'Switch to unix_socket authentication': 'n'
+          'Change the root password': 'n'
+          'Remove anonymous users': 'y'
+          'Disallow root login remotely': 'n'
+          'Remove test database and access to it': 'y'
+          'Reload privilege tables now': 'y'
+      ignore_errors: yes
+
+    - name: MariaDB 슬레이브 설정 복사
+      copy:
+        src: file/slave_mariadb-server.cnf
+        dest: /etc/my.cnf.d/mariadb-server.cnf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart MariaDB
+
+    - name: 기존 복제 중단 (STOP SLAVE)
+      community.mysql.mysql_query:
+        login_user: root
+        login_password: root
+        query: "STOP SLAVE;"
+      ignore_errors: yes
+
+    - name: 복제 설정 적용 (CHANGE MASTER TO)
+      community.mysql.mysql_query:
+        login_user: root
+        login_password: root
+        query: >
+          CHANGE MASTER TO
+            MASTER_HOST='{{ master_host }}',
+            MASTER_USER='{{ master_user }}',
+            MASTER_PASSWORD='{{ master_password }}',
+            MASTER_LOG_FILE='{{ master_log_file }}',
+            MASTER_LOG_POS={{ master_log_pos }};
+
+    - name: 복제 시작 (START SLAVE)
+      community.mysql.mysql_query:
+        login_user: root
+        login_password: root
+        query: "START SLAVE;"
+
+    - name: 복제 상태 확인
+      community.mysql.mysql_query:
+        login_user: root
+        login_password: root
+        query: "SHOW SLAVE STATUS"
+      register: slave_status
+
+    - name: 복제 상태 출력
+      debug:
+        var: slave_status.query_result[0]
+
+    - name: Keepalived 설정 복사 (Slave)
+      copy:
+        src: file/slave_keepalived.conf
+        dest: /etc/keepalived/keepalived.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart keepalived
+
+    - name: MySQL 상태 체크 스크립트 복사
+      copy:
+        src: file/mysql_check.sh
+        dest: /usr/local/bin/mysql_check.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Keepalived 서비스 시작
+      systemd:
+        name: keepalived
+        enabled: yes
+        state: restarted
+
+    - name: /etc/motd에 완료 메시지 등록 (Slave)
+      copy:
+        content: |
+          #####################################################
+          ✅ 이 호스트는 Ansible에 의해 성공적으로 설정되었습니다.
+          ✅ 호스트명: {{ inventory_hostname }}
+          ✅ 완료 시각: {{ ansible_date_time.date }} {{ ansible_date_time.time }}
+          #####################################################
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: '0644' 

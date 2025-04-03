@@ -1,0 +1,76 @@
+---
+###############################
+# Backup Configuration #
+###############################
+
+- name: Configure Backup
+  hosts: backup
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Print hostname
+      debug:
+        msg: "현재 호스트네임: {{ inventory_hostname }}"
+
+    - name: 설치 - 백업 관련 패키지
+      dnf:
+        name:
+          - rsync
+          - tar
+          - gzip
+          - cronie
+        state: present
+
+    - name: 백업 디렉토리 생성
+      file:
+        path: /backup
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: 백업 스크립트 복사
+      copy:
+        src: file/backup.sh
+        dest: /usr/local/bin/backup.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: 크론 작업 설정
+      cron:
+        name: "시스템 백업"
+        minute: "0"
+        hour: "2"
+        job: "/usr/local/bin/backup.sh"
+        state: present
+
+    - name: 백업 로그 디렉토리 생성
+      file:
+        path: /var/log/backup
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: 로그 로테이션 설정
+      copy:
+        src: file/backup-logrotate
+        dest: /etc/logrotate.d/backup
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: /etc/motd에 완료 메시지 등록
+      copy:
+        content: |
+          #####################################################
+          ✅ 이 호스트는 Ansible에 의해 성공적으로 설정되었습니다.
+          ✅ 호스트명: {{ inventory_hostname }}
+          ✅ 완료 시각: {{ ansible_date_time.date }} {{ ansible_date_time.time }}
+          #####################################################
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: '0644' 
